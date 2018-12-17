@@ -20,7 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-import pyb
+import machine, utime
 
 # Constants
 DISPLAYOFF          = 0xAE
@@ -75,34 +75,21 @@ CTL_DAT = 0x40
 
 class SSD1306(object):
 
-  def __init__(self, pinout, height=32, external_vcc=True, i2c_devid=DEVID):
+  def __init__(self, height=64, external_vcc=False, i2c_devid=DEVID):
     self.external_vcc = external_vcc
     self.height       = 32 if height == 32 else 64
     self.pages        = int(self.height / 8)
     self.columns      = 128
 
-    # Infer interface type from entries in pinout{}
-    if 'dc' in pinout:
-      # SPI
-      rate = 16 * 1024 * 1024
-      self.spi = pyb.SPI(2, pyb.SPI.MASTER, baudrate=rate, polarity=1, phase=0)  # SCK: Y6: MOSI: Y8
-      self.dc  = pyb.Pin(pinout['dc'],  pyb.Pin.OUT_PP, pyb.Pin.PULL_DOWN)
-      self.res = pyb.Pin(pinout['res'], pyb.Pin.OUT_PP, pyb.Pin.PULL_DOWN)
-      self.offset = 0
-    else:
-      # Infer bus number from pin
-      if pinout['sda'] == 'X9':
-        self.i2c = pyb.I2C(1)
-      else:
-        self.i2c = pyb.I2C(2)
-      self.i2c.init(pyb.I2C.MASTER, baudrate=400000) # 400kHz
-      self.devid = i2c_devid
-      # used to reserve an extra byte in the image buffer AND as a way to
-      # infer the interface type
-      self.offset = 1
-      # I2C command buffer
-      self.cbuffer = bytearray(2)
-      self.cbuffer[0] = CTL_CMD
+
+    self.i2c = machine.I2C(scl=machine.Pin(5), sda=machine.Pin(4), freq=400000)
+    self.devid = i2c_devid
+    # used to reserve an extra byte in the image buffer AND as a way to
+    # infer the interface type
+    self.offset = 1
+    # I2C command buffer
+    self.cbuffer = bytearray(2)
+    self.cbuffer[0] = CTL_CMD
 
   def clear(self):
     self.buffer = bytearray(self.offset + self.pages * self.columns)
@@ -112,7 +99,7 @@ class SSD1306(object):
   def write_command(self, command_byte):
     if self.offset == 1:
       self.cbuffer[1] = command_byte
-      self.i2c.send(self.cbuffer, addr=self.devid, timeout=5000)
+      self.i2c.writeto(addr=self.devid, buff=self.cbuffer, timeout=5000)
     else:
       self.dc.low()
       self.spi.send(command_byte)
@@ -128,7 +115,7 @@ class SSD1306(object):
     self.write_command(0)
     self.write_command(self.pages - 1)
     if self.offset == 1:
-      self.i2c.send(self.buffer, addr=self.devid, timeout=5000)
+      self.i2c.writeto(addr=self.devid, buff=self.buffer, timeout=5000)
     else:
       self.dc.high()
       self.spi.send(self.buffer)
@@ -169,14 +156,14 @@ class SSD1306(object):
 
   def poweron(self):
     if self.offset == 1:
-      pyb.delay(10)
+      utime.sleep_ms(10)
     else:
       self.res.high()
-      pyb.delay(1)
+      utime.sleep_ms(1)
       self.res.low()
-      pyb.delay(10)
+      utime.sleep_ms(10)
       self.res.high()
-      pyb.delay(10)
+      utime.sleep_ms(10)
 
   def poweroff(self):
     self.write_command(DISPLAYOFF)
